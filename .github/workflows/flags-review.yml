@@ -1,0 +1,35 @@
+# Reviews every pull request that touches flags.yaml with this repository's own action.
+# Other repositories use it the same way, with `uses: Niranjan5601/flag-guardian@<commit>` instead of `./`.
+name: flags.yaml review
+
+on:
+  # pull_request, not pull_request_target: the job runs the PR's own code, so it must not get
+  # a write token or secrets for pull requests from forks (GitHub gives forks a read-only token).
+  pull_request:
+    paths:
+      - flags.yaml
+      - action.yml
+      - .github/workflows/flags-review.yml
+      - packages/guardian/src/**
+      - packages/guardian/package*.json
+
+permissions:
+  contents: read
+  pull-requests: write
+
+# Two quick pushes would otherwise race to create the comment and leave two of them.
+concurrency:
+  group: flags-review-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  review:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - uses: ./
+        with:
+          config: flags.yaml

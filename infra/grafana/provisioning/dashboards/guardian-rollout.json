@@ -1,0 +1,214 @@
+{
+  "uid": "flag-guardian-rollout",
+  "title": "Flag Guardian · new_checkout rollout",
+  "description": "Live view of a health-gated rollout: traffic split, guard metrics with their limits, and the rollout percentage Guardian set. Vertical markers are Guardian and Flagsmith events.",
+  "tags": ["flag-guardian", "flagsmith"],
+  "timezone": "browser",
+  "editable": false,
+  "graphTooltip": 1,
+  "refresh": "5s",
+  "time": { "from": "now-15m", "to": "now" },
+  "schemaVersion": 39,
+  "annotations": {
+    "list": [
+      {
+        "name": "Guardian events",
+        "datasource": { "type": "grafana", "uid": "-- Grafana --" },
+        "enable": true,
+        "iconColor": "orange",
+        "target": { "type": "tags", "tags": ["guardian"], "matchAny": true, "limit": 200 }
+      },
+      {
+        "name": "Flagsmith flag changes",
+        "datasource": { "type": "grafana", "uid": "-- Grafana --" },
+        "enable": true,
+        "iconColor": "purple",
+        "target": { "type": "tags", "tags": ["flagsmith"], "matchAny": true, "limit": 200 }
+      }
+    ]
+  },
+  "panels": [
+    {
+      "id": 1,
+      "type": "stat",
+      "title": "Rollout",
+      "description": "Share of users Guardian has put on the new checkout (guardian_rollout_percent).",
+      "gridPos": { "x": 0, "y": 0, "w": 6, "h": 5 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        { "refId": "A", "expr": "guardian_rollout_percent{flag=\"new_checkout\"}", "instant": true }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "min": 0,
+          "max": 100,
+          "color": { "mode": "fixed", "fixedColor": "blue" }
+        },
+        "overrides": []
+      },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "value", "graphMode": "none", "textMode": "value" }
+    },
+    {
+      "id": 2,
+      "type": "stat",
+      "title": "Guardian status",
+      "description": "Controller state for new_checkout (guardian_flag_status).",
+      "gridPos": { "x": 6, "y": 0, "w": 6, "h": 5 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        { "refId": "A", "expr": "guardian_flag_status{flag=\"new_checkout\"}", "instant": true }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [
+            {
+              "type": "value",
+              "options": {
+                "0": { "text": "idle", "color": "text" },
+                "1": { "text": "rolling", "color": "blue" },
+                "2": { "text": "holding", "color": "yellow" },
+                "3": { "text": "complete", "color": "green" },
+                "4": { "text": "rolled back", "color": "red" },
+                "5": { "text": "held", "color": "orange" },
+                "6": { "text": "watching", "color": "purple" }
+              }
+            }
+          ],
+          "color": { "mode": "fixed", "fixedColor": "text" }
+        },
+        "overrides": []
+      },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "background", "graphMode": "none", "textMode": "value" }
+    },
+    {
+      "id": 3,
+      "type": "timeseries",
+      "title": "Rollout % over time",
+      "gridPos": { "x": 12, "y": 0, "w": 12, "h": 5 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        { "refId": "A", "expr": "guardian_rollout_percent{flag=\"new_checkout\"}", "legendFormat": "rollout %" }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "min": 0,
+          "max": 100,
+          "color": { "mode": "fixed", "fixedColor": "blue" },
+          "custom": { "lineInterpolation": "stepAfter", "fillOpacity": 15, "lineWidth": 2, "showPoints": "never" }
+        },
+        "overrides": []
+      },
+      "options": { "legend": { "showLegend": false }, "tooltip": { "mode": "single" } }
+    },
+    {
+      "id": 4,
+      "type": "timeseries",
+      "title": "Checkouts per second: new vs classic",
+      "description": "Traffic split by which checkout each user got (label flag_new_checkout set by the demo shop).",
+      "gridPos": { "x": 0, "y": 5, "w": 24, "h": 7 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (flag_new_checkout) (rate(http_requests_total{app=\"demo-shop\",route=\"/api/checkout\"}[30s]))",
+          "legendFormat": "{{flag_new_checkout}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps",
+          "min": 0,
+          "custom": { "stacking": { "mode": "normal" }, "fillOpacity": 30, "lineWidth": 1, "showPoints": "never" }
+        },
+        "overrides": [
+          { "matcher": { "id": "byName", "options": "on" }, "properties": [
+            { "id": "displayName", "value": "new checkout" },
+            { "id": "color", "value": { "mode": "fixed", "fixedColor": "blue" } }
+          ] },
+          { "matcher": { "id": "byName", "options": "off" }, "properties": [
+            { "id": "displayName", "value": "classic checkout" },
+            { "id": "color", "value": { "mode": "fixed", "fixedColor": "gray" } }
+          ] }
+        ]
+      },
+      "options": { "legend": { "showLegend": true, "displayMode": "list", "placement": "bottom" }, "tooltip": { "mode": "multi" } }
+    },
+    {
+      "id": 5,
+      "type": "timeseries",
+      "title": "Error rate (guard: max 2%)",
+      "description": "5xx share per variant; a gap means no traffic (not 0%). Guardian rolls back after two consecutive readings above the dashed line for the new checkout.",
+      "gridPos": { "x": 0, "y": 12, "w": 12, "h": 8 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "(sum by (flag_new_checkout) (rate(http_requests_total{app=\"demo-shop\",route=\"/api/checkout\",status=~\"5..\"}[30s])) or 0 * sum by (flag_new_checkout) (rate(http_requests_total{app=\"demo-shop\",route=\"/api/checkout\"}[30s]))) / (sum by (flag_new_checkout) (rate(http_requests_total{app=\"demo-shop\",route=\"/api/checkout\"}[30s])) > 0)",
+          "legendFormat": "{{flag_new_checkout}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "min": 0,
+          "decimals": 1,
+          "thresholds": { "mode": "absolute", "steps": [
+            { "color": "transparent", "value": null },
+            { "color": "red", "value": 0.02 }
+          ] },
+          "custom": { "axisSoftMax": 0.05, "thresholdsStyle": { "mode": "dashed" }, "lineWidth": 2, "fillOpacity": 0, "showPoints": "never", "spanNulls": false }
+        },
+        "overrides": [
+          { "matcher": { "id": "byName", "options": "on" }, "properties": [
+            { "id": "displayName", "value": "new checkout" },
+            { "id": "color", "value": { "mode": "fixed", "fixedColor": "blue" } }
+          ] },
+          { "matcher": { "id": "byName", "options": "off" }, "properties": [
+            { "id": "displayName", "value": "classic checkout" },
+            { "id": "color", "value": { "mode": "fixed", "fixedColor": "gray" } }
+          ] }
+        ]
+      },
+      "options": { "legend": { "showLegend": true, "displayMode": "list", "placement": "bottom" }, "tooltip": { "mode": "multi" } }
+    },
+    {
+      "id": 6,
+      "type": "timeseries",
+      "title": "p95 latency (guard: max 400 ms)",
+      "description": "95th percentile checkout latency per variant, from the http_request_duration_seconds histogram.",
+      "gridPos": { "x": 12, "y": 12, "w": 12, "h": 8 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "1000 * histogram_quantile(0.95, sum by (le, flag_new_checkout) (rate(http_request_duration_seconds_bucket{app=\"demo-shop\",route=\"/api/checkout\"}[30s])))",
+          "legendFormat": "{{flag_new_checkout}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ms",
+          "min": 0,
+          "thresholds": { "mode": "absolute", "steps": [
+            { "color": "transparent", "value": null },
+            { "color": "red", "value": 400 }
+          ] },
+          "custom": { "axisSoftMax": 500, "thresholdsStyle": { "mode": "dashed" }, "lineWidth": 2, "fillOpacity": 0, "showPoints": "never", "spanNulls": false }
+        },
+        "overrides": [
+          { "matcher": { "id": "byName", "options": "on" }, "properties": [
+            { "id": "displayName", "value": "new checkout" },
+            { "id": "color", "value": { "mode": "fixed", "fixedColor": "blue" } }
+          ] },
+          { "matcher": { "id": "byName", "options": "off" }, "properties": [
+            { "id": "displayName", "value": "classic checkout" },
+            { "id": "color", "value": { "mode": "fixed", "fixedColor": "gray" } }
+          ] }
+        ]
+      },
+      "options": { "legend": { "showLegend": true, "displayMode": "list", "placement": "bottom" }, "tooltip": { "mode": "multi" } }
+    }
+  ]
+}

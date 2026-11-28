@@ -1,0 +1,119 @@
+name: Flag Guardian review
+description: >-
+  Validates flags.yaml and comments on the pull request with what the change does to each
+  rollout (riskier / safer / needs review). Offline: never contacts Flagsmith, needs no secrets.
+author: Flag Guardian contributors
+branding:
+  icon: shield
+  color: blue
+
+inputs:
+  config:
+    description: Path to flags.yaml, relative to the repository root.
+    default: flags.yaml
+  comment:
+    description: Post (and keep updating) one review comment on the pull request.
+    default: 'true'
+  strict:
+    description: Treat warnings (expired flag, last step below 100%) as errors.
+    default: 'false'
+  fail-on-riskier:
+    description: Fail the check when a change exposes more users sooner or weakens a guard.
+    default: 'false'
+  github-token:
+    description: Token for reading the base version and commenting. Needs contents:read and pull-requests:write.
+    default: ${{ github.token }}
+
+runs:
+  using: composite
+  steps:
+    - name: Set up Node.js
+      # Pinned to a commit (v4.4.0): a moved tag cannot change what runs.
+      uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+      with:
+        node-version: 22
+
+    - name: Build Guardian
+      shell: bash
+      env:
+        GUARDIAN: ${{ github.action_path }}/packages/guardian
+      run: |
+        set -euo pipefail
+        # --ignore-scripts: no dependency install hooks run in the caller's job; tsc needs none.
+        npm ci --prefix "$GUARDIAN" --ignore-scripts --no-audit --no-fund --loglevel=error
+        npm run build --prefix "$GUARDIAN" --silent
+
+    - name: Review flags.yaml
+      shell: bash
+      # Every value reaches the script through env, never through ${{ }} inside `run:`,
+      # so a branch name or input cannot inject shell commands.
+      env:
+        GUARDIAN: ${{ github.action_path }}/packages/guardian
+        CONFIG: ${{ inputs.config }}
+        COMMENT: ${{ inputs.comment }}
+        STRICT: ${{ inputs.strict }}
+        FAIL_ON_RISKIER: ${{ inputs.fail-on-riskier }}
+        GH_TOKEN: ${{ inputs.github-token }}
+        REPO: ${{ github.repository }}
+        PR_NUMBER: ${{ github.event.pull_request.number }}
+        BASE_SHA: ${{ github.event.pull_request.base.sha }}
+      # No `set -e` on purpose: the CLI's exit code (1 invalid, 2 riskier) is captured, the review
+      # is still published, and only then does the step fail with that code.
+      run: |
+        set -uo pipefail
+        review="$RUNNER_TEMP/flag-guardian-review.md"
+        base="$RUNNER_TEMP/flag-guardian-base.yaml"
+        err="$RUNNER_TEMP/flag-guardian-gh.err"
+        rm -f "$base" "$review"
+
+        # The base branch's version, through the API: works with any checkout depth. The default
+        # pull_request checkout is the merge commit, so base.sha vs. the working tree is exactly
+        # what this PR changes. Each path segment is URL-encoded ("#", "?", spaces, "{owner}").
+        if [ -n "$BASE_SHA" ]; then
+          path=$(node -e 'const p = require("path").posix.normalize(process.argv[1].replace(/\\/g, "/")).replace(/^\.\//, ""); process.stdout.write(p.split("/").map(encodeURIComponent).join("/"))' "$CONFIG")
+          if ! gh api -H 'Accept: application/vnd.github.raw' "repos/$REPO/contents/$path?ref=$BASE_SHA" > "$base" 2> "$err"; then
+            rm -f "$base"
+            if grep -q 'HTTP 404' "$err"; then
+              echo "::notice::$CONFIG does not exist on the base branch; every flag is reviewed as new."
+            else
+              # Reviewing without the base would label every change "new" and hide riskier ones.
+              cat "$err" >&2
+              echo "::error::Could not read $CONFIG from the base branch, so the change cannot be reviewed."
+              exit 1
+            fi
+          fi
+        fi
+
+        args=(diff --config "$CONFIG" --format markdown)
+        [ -f "$base" ] && args+=(--base "$base")
+        [ "$STRICT" = "true" ] && args+=(--strict)
+        [ "$FAIL_ON_RISKIER" = "true" ] && args+=(--fail-on-riskier)
+        node "$GUARDIAN/dist/cli.js" "${args[@]}" > "$review"
+        code=$?
+
+        if [ ! -s "$review" ]; then
+          # Guardian itself failed (its error is in the log above); there is no review to post.
+          echo "::error::Flag Guardian failed to run (exit $code). See the log."
+          exit $(( code == 0 ? 1 : code ))
+        fi
+        cat "$review" >> "$GITHUB_STEP_SUMMARY"
+
+        if [ "$COMMENT" = "true" ] && [ -n "$PR_NUMBER" ]; then
+          # One comment per PR, updated on every push: find ours by its hidden marker (the same
+          # string as COMMENT_MARKER in diff.ts). -F body=@file sends the file as a JSON string;
+          # gh does no number/boolean coercion on @file values.
+          existing=$(gh api --paginate "repos/$REPO/issues/$PR_NUMBER/comments" \
+            --jq '.[] | select(.user.type == "Bot" and (.body | startswith("<!-- flag-guardian-plan -->"))) | .id' 2>/dev/null | tail -n1)
+          # If updating fails (e.g. the marked comment belongs to another app), post a new one.
+          if ! { [ -n "$existing" ] && gh api -X PATCH "repos/$REPO/issues/comments/$existing" -F "body=@$review" > /dev/null; } &&
+             ! gh api "repos/$REPO/issues/$PR_NUMBER/comments" -F "body=@$review" > /dev/null; then
+            echo "::warning::Could not comment on the pull request (pull requests from forks get a read-only token). The review is in the job summary."
+          fi
+        fi
+
+        case $code in
+          0) ;;
+          2) echo "::error file=$CONFIG::Riskier rollout changes (fail-on-riskier is on). See the review." ;;
+          *) echo "::error file=$CONFIG::$CONFIG is invalid. See the review." ;;
+        esac
+        exit $code

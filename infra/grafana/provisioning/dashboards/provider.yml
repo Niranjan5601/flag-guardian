@@ -1,0 +1,12 @@
+# Loads every dashboard JSON in this folder at Grafana startup (and re-reads it every 30 s).
+# The dashboards live in the repo, so a fresh `docker compose up` shows them with no clicking.
+apiVersion: 1
+providers:
+  - name: flag-guardian
+    folder: Flag Guardian
+    type: file
+    disableDeletion: true
+    allowUiUpdates: false
+    updateIntervalSeconds: 30
+    options:
+      path: /etc/grafana/provisioning/dashboards

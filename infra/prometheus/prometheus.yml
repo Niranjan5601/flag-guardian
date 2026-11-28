@@ -1,0 +1,17 @@
+global:
+  scrape_interval: 5s
+  evaluation_interval: 5s
+
+scrape_configs:
+  - job_name: demo-shop
+    static_configs:
+      - targets: ['demo-shop:3001']
+
+  - job_name: guardian
+    static_configs:
+      - targets: ['guardian:8787']
+
+  - job_name: flagsmith
+    metrics_path: /metrics/   # trailing slash matters: /metrics serves the dashboard
+    static_configs:
+      - targets: ['flagsmith:8000']

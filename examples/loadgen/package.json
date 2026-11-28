@@ -1,0 +1,10 @@
+{
+  "name": "loadgen",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Simulated shoppers for the Flag Guardian demo",
+  "type": "module",
+  "scripts": {
+    "start": "node loadgen.js"
+  }
+}

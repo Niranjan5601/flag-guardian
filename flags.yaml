@@ -1,0 +1,48 @@
+# Flag Guardian rollout plans — reviewed in pull requests like any other code.
+# Schema: packages/guardian/src/config/schema.ts   Fields: README.md
+version: 1
+
+flagsmith:
+  project: demo-shop
+  environment: Production   # must match the environment name in Flagsmith exactly
+
+notify:
+  discord: ${DISCORD_WEBHOOK_URL}
+
+# Health queries. They only look at users who got the new version (flag_new_checkout="on"),
+# so a bug in the new checkout shows up clearly even at 5% of traffic.
+metrics:
+  error_rate:
+    source: prometheus
+    # `or vector(0)`: before the first 5xx ever, the error series does not exist; count that as 0.
+    # `> 0`: with no traffic, return no data (Guardian holds) instead of a misleading 0%.
+    query: |
+      (sum(rate(http_requests_total{app="demo-shop",flag_new_checkout="on",status=~"5.."}[30s])) or vector(0))
+      / (sum(rate(http_requests_total{app="demo-shop",flag_new_checkout="on"}[30s])) > 0)
+  p95_latency_ms:
+    source: prometheus
+    query: |
+      1000 * histogram_quantile(0.95,
+        sum by (le) (rate(http_request_duration_seconds_bucket{app="demo-shop",flag_new_checkout="on"}[30s])))
+  requests:
+    source: prometheus
+    query: |
+      sum(increase(http_requests_total{app="demo-shop",flag_new_checkout="on"}[30s]))
+
+flags:
+  new_checkout:
+    description: One-page checkout
+    owner: "@payments-team"
+    expires: 2027-01-31
+    rollout:
+      steps: [5, 25, 50, 100]
+      interval: 30s        # short for the demo; use minutes or hours in real life
+      samples: requests    # don't judge a step on too little traffic
+      min_samples: 15
+    guards:
+      - metric: error_rate
+        max: 0.02
+      - metric: p95_latency_ms
+        max: 400
+    on_breach: rollback
+    watch_manual_changes: 5m

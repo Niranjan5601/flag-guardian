@@ -1,0 +1,46 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  guardian:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: packages/guardian
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: packages/guardian/package-lock.json
+      - run: npm ci --no-audit --no-fund
+      - run: npx tsc -p . --noEmit
+      - run: npm test
+      - name: flags.yaml is valid
+        run: npx tsx src/cli.ts validate --config ../../flags.yaml
+
+  compose:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - name: docker-compose.yml is valid for every profile
+        run: |
+          cp .env.example .env
+          # .env.example leaves the SDK key empty; demo-shop requires one to be set.
+          sed -i 's/^FLAGSMITH_ENVIRONMENT_KEY=.*/FLAGSMITH_ENVIRONMENT_KEY=ci-placeholder/' .env
+          docker compose config --quiet
+          docker compose --profile app --profile tunnel config --quiet

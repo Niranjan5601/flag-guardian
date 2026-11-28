@@ -1,0 +1,4 @@
+# LF everywhere, also on Windows checkouts: nginx.conf, YAML and the action's bash run in Linux containers.
+* text=auto eol=lf
+*.png binary
+*.gif binary

@@ -1,0 +1,351 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Flag Guardian</title>
+<style>
+  :root { --bg:#0b1020; --card:#131a2e; --sunk:#0e1426; --line:#26304d; --text:#e6e9f2; --muted:#8a93ad; --ok:#22c55e; --bad:#ef4444; --warn:#f59e0b; --info:#3b82f6; --watch:#a855f7; }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--text); font:14px/1.45 system-ui, -apple-system, Segoe UI, sans-serif; }
+  header { padding:16px; border-bottom:1px solid var(--line); display:flex; align-items:center; gap:12px; flex-wrap:wrap; }
+  header h1 { margin:0; font-size:18px; }
+  .live { margin-left:auto; font-size:12px; color:var(--muted); display:flex; align-items:center; gap:6px; }
+  .dot { width:8px; height:8px; border-radius:50%; background:var(--muted); }
+  .live.on .dot { background:var(--ok); box-shadow:0 0 0 3px color-mix(in srgb, var(--ok) 25%, transparent); }
+  .live.off .dot { background:var(--bad); }
+  main { max-width:1100px; margin:0 auto; padding:16px; display:grid; gap:16px; grid-template-columns:minmax(0,1fr); }
+  @media (min-width: 900px) { main { grid-template-columns:minmax(0,1.3fr) minmax(0,1fr); } }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:16px; }
+  .card + .card { margin-top:16px; }
+  .muted { color:var(--muted); }
+  .num { font-variant-numeric:tabular-nums; }
+
+  .flag-head { display:flex; justify-content:space-between; align-items:center; gap:8px; }
+  .flag-head h2 { margin:0; font-size:17px; }
+  .badge { font-size:12px; padding:2px 10px; border-radius:999px; background:var(--line); text-transform:uppercase; letter-spacing:.04em; white-space:nowrap; }
+  .s-rolling,.s-complete { background:color-mix(in srgb, var(--ok) 22%, transparent); color:var(--ok); }
+  .s-holding { background:color-mix(in srgb, var(--warn) 22%, transparent); color:var(--warn); }
+  .s-rolled_back,.s-held { background:color-mix(in srgb, var(--bad) 22%, transparent); color:var(--bad); }
+  .s-watching { background:color-mix(in srgb, var(--watch) 22%, transparent); color:var(--watch); }
+  .meta { margin-top:2px; font-size:13px; }
+
+  .headline { display:flex; align-items:baseline; gap:10px; margin:14px 0 4px; flex-wrap:wrap; }
+  .headline .pct { font-size:34px; font-weight:650; line-height:1; }
+  .status-line { font-size:13px; }
+
+  .steps { display:flex; gap:4px; margin:14px 0 4px; }
+  .step { flex:1; height:10px; border-radius:4px; background:var(--line); overflow:hidden; }
+  .step.done { background:var(--ok); }
+  .step .fill { height:100%; width:0; background:var(--info); transition:width 1s linear; }
+  .step.paused .fill { background:var(--warn); }
+  .step.stopped { background:var(--bad); }
+  .stepl { display:flex; gap:4px; font-size:12px; } .stepl span { flex:1; text-align:center; color:var(--muted); }
+  .stepl span.cur { color:var(--text); font-weight:600; }
+
+  .guards { display:grid; gap:8px; margin:16px 0 4px; }
+  .guard { padding:8px 10px; border-radius:8px; background:var(--sunk); border-left:3px solid var(--line); }
+  .guard.ok { border-color:var(--ok); } .guard.bad { border-color:var(--bad); } .guard.na { border-color:var(--warn); }
+  .guard .row { display:flex; justify-content:space-between; gap:8px; }
+  .guard .val { font-weight:600; }
+  .meter { position:relative; height:4px; border-radius:2px; background:var(--line); margin-top:6px; }
+  .meter i { position:absolute; inset:0 auto 0 0; border-radius:2px; background:var(--ok); }
+  .guard.bad .meter i { background:var(--bad); } .meter i.near { background:var(--warn); }
+  .meter b { position:absolute; top:-3px; width:2px; height:10px; background:var(--muted); }
+  .confirming { font-size:12px; color:var(--bad); margin-top:4px; }
+  .samples { font-size:12px; margin-top:4px; }
+
+  .reason { margin-top:10px; font-size:13px; padding:8px 10px; border-radius:8px; background:var(--sunk); }
+  .actions { display:flex; gap:8px; flex-wrap:wrap; margin-top:14px; }
+  button { background:var(--line); color:var(--text); border:0; padding:8px 14px; border-radius:8px; cursor:pointer; font:inherit; }
+  button.primary { background:var(--info); } button.danger { background:var(--bad); }
+  button:disabled { opacity:.4; cursor:default; }
+  button:focus-visible { outline:2px solid var(--text); outline-offset:2px; }
+
+  .timeline h2 { margin:0 0 8px; font-size:16px; }
+  .events { list-style:none; margin:0; padding:0; max-height:75vh; overflow:auto; }
+  .events li { display:grid; grid-template-columns:auto 1fr; gap:2px 10px; padding:9px 0 9px 10px; border-bottom:1px solid var(--line); border-left:3px solid var(--line); margin-bottom:2px; }
+  .events time { color:var(--muted); font-size:12px; font-variant-numeric:tabular-nums; padding-top:1px; }
+  .events .msg { overflow-wrap:anywhere; }
+  .events .sub { grid-column:2; font-size:12px; color:var(--muted); }
+  .e-good { border-left-color:var(--ok) !important; } .e-bad { border-left-color:var(--bad) !important; }
+  .e-warn { border-left-color:var(--warn) !important; } .e-watch { border-left-color:var(--watch) !important; } .e-info { border-left-color:var(--info) !important; }
+  .empty { padding:12px 0; }
+</style>
+</head>
+<body>
+<header>
+  <h1><span aria-hidden="true">🛡️</span> Flag Guardian</h1><span class="muted" id="env"></span>
+  <span class="live" id="live" role="status"><span class="dot"></span><span id="live-text">connecting…</span></span>
+</header>
+<main>
+  <section id="flags" aria-label="Guarded flags"></section>
+  <section class="card timeline" aria-label="Timeline"><h2>Timeline</h2><ul class="events" id="events"></ul></section>
+</main>
+<script>
+const $ = (s) => document.querySelector(s);
+// Escapes for HTML text and quoted attribute values. Values never go into inline JS:
+// buttons carry data-flag/data-action and one delegated listener reads them.
+const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c]));
+
+// --- formatting
+// Units are guessed from the metric name, for display only (decisions use raw values).
+// Only explicit unit words count: "latency" alone says nothing about ms vs seconds, and a
+// "*_pct" metric is usually already 0-100, so neither is guessed.
+const isRatio = (name) => /(^|_)(rate|ratio|share|fraction)(_|$)/i.test(name);
+const isMs = (name) => /(^|_)(ms|millis|milliseconds)(_|$)/i.test(name);
+const isSec = (name) => /(^|_)(s|secs|seconds)(_|$)/i.test(name);
+function fmtMetric(name, v) {
+  if (v === null || v === undefined || !Number.isFinite(+v)) return 'no data';
+  v = +v;
+  if (isRatio(name) && Math.abs(v) <= 1) { const p = v * 100; return `${p.toFixed(Math.abs(p) < 10 ? 2 : 1)}%`; }
+  if (isMs(name)) return `${Math.round(v)} ms`;
+  if (isSec(name)) return `${Number(v.toPrecision(3))} s`;
+  if (Number.isInteger(v)) return String(v);
+  // Small values keep 3 significant digits (0.00012 must not print as 0.0000).
+  return Math.abs(v) >= 1 ? v.toFixed(1) : String(Number(v.toPrecision(3)));
+}
+const fmtLeft = (ms) => {
+  if (!Number.isFinite(ms)) return '–';
+  const s = Math.max(0, Math.ceil(ms / 1000));
+  return s >= 60 ? `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}` : `${s}s`;
+};
+const fmtDur = (ms) => ms % 3600000 === 0 ? `${ms / 3600000}h` : ms % 60000 === 0 ? `${ms / 60000}m` : `${Math.round(ms / 1000)}s`;
+
+// Countdowns compare server timestamps with this browser's clock. When the two disagree by
+// more than the Date header's 1 s resolution, correct for it (else a skewed laptop shows
+// "0s" for a whole step, or a countdown that never ends).
+let skew = 0;
+function noteServerTime(res) {
+  const server = Date.parse(res.headers.get('Date') ?? '');
+  if (Number.isFinite(server)) { const d = server - Date.now(); skew = Math.abs(d) > 2000 ? d : 0; }
+}
+const serverNow = () => Date.now() + skew;
+// `+x` always renders as digits or "NaN", so it is safe in an attribute without esc().
+const countdown = (until) => Number.isFinite(+until) ? `<span class="num" data-until="${+until}"></span>` : 'a moment';
+
+// --- flags
+let flagsState = [];
+
+/** One sentence under the big number, saying what Guardian is doing and what happens next. */
+function statusLine(plan, r) {
+  const steps = plan.rollout.steps;
+  const last = r.stepIndex >= steps.length - 1;
+  if (r.manualExposure && r.status !== 'watching') {
+    return 'Changed outside Guardian, so automation stopped. Who gets the flag is whatever was set in Flagsmith. Start a rollout to hand control back.';
+  }
+  switch (r.status) {
+    case 'rolling': {
+      if (r.breachStreak > 0) return `<b style="color:var(--bad)">A guard is failing.</b> Confirming on the next check, then ${plan.on_breach === 'rollback' ? 'rolling back' : 'holding'}.`;
+      const until = countdown(+r.stepStartedAt + +plan.rollout.interval);
+      return last
+        ? `Healthy so far. Complete in ${until} if guards stay green.`
+        : `Healthy so far. Next step ${esc(steps[r.stepIndex + 1])}% in ${until}.`;
+    }
+    case 'holding': return 'Paused: not enough data to judge. The step clock restarts when data returns.';
+    case 'complete': return `Rolled out to ${esc(r.percent)}%. All guards stayed healthy.`;
+    case 'rolled_back': return r.rollbackPending ? 'Rollback incomplete: retrying every tick.' : 'Flag is off for everyone.';
+    case 'held': return `Held at ${esc(r.percent)}%: a guard failed and on_breach is "hold".`;
+    case 'watching': return r.watchUntil
+      ? `Watching a manual change: ${countdown(r.watchUntil)} left. Guards still apply.`
+      : 'Watching a manual change.';
+    default: return 'Not rolling out. Start a rollout to begin at the first step.';
+  }
+}
+
+function guardHtml(g, r, breaching) {
+  const raw = r.values && Object.hasOwn(r.values, g.metric) ? r.values[g.metric] : null;
+  const has = raw !== null && raw !== undefined && Number.isFinite(+raw);
+  const v = +raw;
+  const bad = has && ((g.max != null && v > g.max) || (g.min != null && v < g.min));
+  // A guard may set min, max or both; show every limit that applies.
+  const limits = [g.min != null && `≥ ${fmtMetric(g.metric, g.min)}`, g.max != null && `≤ ${fmtMetric(g.metric, g.max)}`]
+    .filter(Boolean).join(', ');
+  // Meter: where the value sits relative to the max (drawn at 80% of the width). Only for a
+  // positive max: with max 0 or a min-only guard there is no meaningful scale.
+  let meter = '';
+  if (has && g.max != null && g.max > 0) {
+    const ratio = v / g.max;
+    const w = Math.max(0, Math.min(100, ratio * 80)); // negative values would make an invalid width
+    meter = `<div class="meter" aria-hidden="true"><i class="${!bad && ratio > 0.75 ? 'near' : ''}" style="width:${w.toFixed(1)}%"></i><b style="left:80%"></b></div>`;
+  }
+  return `<div class="guard ${!has ? 'na' : bad ? 'bad' : 'ok'}">
+    <div class="row"><span>${esc(g.metric)}</span>
+      <span class="num"><span class="val">${esc(fmtMetric(g.metric, raw))}</span> <span class="muted">${esc(limits)}</span></span></div>
+    ${meter}
+    ${bad && breaching ? '<div class="confirming">Failing: confirming on the next check before acting</div>' : ''}
+  </div>`;
+}
+
+// Flags with a control request in flight: their buttons stay disabled so a double click
+// cannot send two starts (the second would fail with "already rolling out").
+const busy = new Set();
+
+function renderFlags() {
+  // Re-rendering replaces the buttons on every state update (each tick); put keyboard focus
+  // back on the same button so keyboard and screen-reader users are not thrown to the top.
+  const f = document.activeElement?.closest?.('#flags button[data-action]');
+  const focused = f ? [f.dataset.flag, f.dataset.action] : null;
+  $('#flags').innerHTML = flagsState.map(({ name, plan, runtime: r }) => {
+    const steps = plan.rollout.steps;
+    const active = r.status === 'rolling' || r.status === 'holding';
+    const stopped = r.status === 'rolled_back' || r.status === 'held';
+    // A watch window that started after completion returns to "complete": still all done.
+    const allDone = r.status === 'complete' || (r.status === 'watching' && r.afterWatch === 'complete');
+    const here = (i) => i === r.stepIndex && (active || stopped);
+    const bars = steps.map((s, i) => {
+      // stepIndex is -1 before the first start, so no step counts as done then.
+      if (allDone || (r.status !== 'idle' && i < r.stepIndex)) return '<div class="step done"></div>';
+      if (i === r.stepIndex && active) {
+        return `<div class="step ${r.status === 'holding' ? 'paused' : ''}"><div class="fill" data-from="${+r.stepStartedAt}" data-for="${+plan.rollout.interval}" data-paused="${r.status === 'holding'}"></div></div>`;
+      }
+      if (i === r.stepIndex && stopped) return '<div class="step stopped"></div>';
+      return '<div class="step"></div>';
+    }).join('');
+    const labels = steps.map((s, i) => `<span class="${here(i) ? 'cur' : ''}">${esc(s)}%</span>`).join('');
+    const guards = plan.guards.map((g) => guardHtml(g, r, r.breachStreak > 0)).join('');
+    // floor, like the controller: 14.6 samples must not read as "15 / min 15" while holding.
+    const n = r.samples != null && Number.isFinite(+r.samples) ? Math.floor(+r.samples) : 'no data';
+    const samples = plan.rollout.samples
+      ? `<div class="samples muted num">samples (${esc(plan.rollout.samples)}): ${esc(n)}${plan.rollout.min_samples ? ` / min ${esc(plan.rollout.min_samples)}` : ''}</div>` : '';
+    const wait = busy.has(name);
+    const meta = [plan.description, plan.owner && `owner ${plan.owner}`, `every ${fmtDur(plan.rollout.interval)}`, `on breach: ${plan.on_breach}`].filter(Boolean).map(esc).join(' · ');
+    return `<div class="card flag">
+      <div class="flag-head"><h2>${esc(name)}</h2><span class="badge s-${esc(r.status)}">${esc(r.status.replace('_', ' '))}</span></div>
+      <div class="meta muted">${meta}</div>
+      <div class="headline">${r.manualExposure
+        ? '<span class="pct">Manual</span><span class="muted">exposure set outside Guardian</span>'
+        : `<span class="pct num">${esc(r.percent)}%</span><span class="muted">of users on the new version</span>`}</div>
+      <div class="status-line">${statusLine(plan, r)}</div>
+      <div class="steps" role="img" aria-label="${esc(r.manualExposure ? `Rollout steps ${steps.join(', ')} percent; exposure set outside Guardian` : `Rollout steps ${steps.join(', ')} percent; at ${r.percent} percent`)}">${bars}</div>
+      <div class="stepl">${labels}</div>
+      <div class="guards">${guards}</div>
+      ${samples}
+      ${r.reason && r.status !== 'idle' ? `<div class="reason muted">${esc(r.reason)}</div>` : ''}
+      <div class="actions">
+        <button class="primary" ${active || wait ? 'disabled' : ''} data-flag="${esc(name)}" data-action="start">Start rollout</button>
+        <button ${stopped && !wait ? '' : 'disabled'} data-flag="${esc(name)}" data-action="resume">Resume</button>
+        <button class="danger" ${wait ? 'disabled' : ''} data-flag="${esc(name)}" data-action="rollback">Roll back now</button>
+      </div></div>`;
+  }).join('') || '<div class="card muted">No guarded flags in flags.yaml.</div>';
+  if (focused) {
+    [...document.querySelectorAll('#flags button[data-action]')]
+      .find((b) => b.dataset.flag === focused[0] && b.dataset.action === focused[1])?.focus();
+  }
+  tickClocks();
+}
+
+/** Countdowns and step progress update every second without re-rendering the cards. */
+function tickClocks() {
+  const now = serverNow();
+  document.querySelectorAll('[data-until]').forEach((el) => { el.textContent = fmtLeft(+el.dataset.until - now); });
+  document.querySelectorAll('.fill[data-from]').forEach((el) => {
+    const span = +el.dataset.for;
+    let frac = el.dataset.paused === 'true' ? 0 : span > 0 ? (now - +el.dataset.from) / span : 1;
+    // Clamp: a skewed clock gives < 0, a step waiting for the next tick gives > 1.
+    frac = Number.isFinite(frac) ? Math.min(1, Math.max(0, frac)) : 0;
+    el.style.width = `${(frac * 100).toFixed(1)}%`;
+  });
+}
+setInterval(tickClocks, 1000);
+
+// --- timeline
+let events = [];
+const KIND = {
+  started: 'info', resumed: 'info', step_advanced: 'good', completed: 'good', watch_ended: 'good',
+  holding: 'warn', breach_detected: 'bad', rolled_back: 'bad', held: 'bad', error: 'bad',
+  manual_change_detected: 'watch',
+};
+function eventValues(e) {
+  if (!e.values) return '';
+  const parts = Object.entries(e.values).map(([k, v]) => `${k} ${fmtMetric(k, v)}`);
+  return parts.length ? parts.join(' · ') : '';
+}
+function renderEvents() {
+  const today = new Date().toDateString();
+  $('#events').innerHTML = events.slice().reverse().map((e) => {
+    const d = new Date(+e.ts);
+    const valid = Number.isFinite(d.getTime()); // toISOString() throws on an invalid date
+    const when = !valid ? '' : d.toDateString() === today ? d.toLocaleTimeString() : d.toLocaleString();
+    const sub = [e.percent != null ? `at ${e.percent}%` : '', eventValues(e)].filter(Boolean).join(' · ');
+    // hasOwn: KIND["constructor"] would be a function, not a class name.
+    const kind = Object.hasOwn(KIND, e.type) ? KIND[e.type] : 'info';
+    return `<li class="e-${kind}"><time datetime="${valid ? esc(d.toISOString()) : ''}">${esc(when)}</time>
+      <span class="msg"><b>${esc(e.flag)}</b> ${esc(e.message)}</span>${sub ? `<span class="sub num">${esc(sub)}</span>` : ''}</li>`;
+  }).join('') || '<li class="muted empty">No events yet.</li>';
+}
+
+// --- actions
+// Control API token. Only needed when Guardian runs with GUARDIAN_API_TOKEN; the local demo
+// has none. Kept in sessionStorage (this tab only), asked for again after a 401.
+const TOKEN_KEY = 'guardian-token';
+const readToken = () => { try { return sessionStorage.getItem(TOKEN_KEY); } catch { return null; } };
+const saveToken = (t) => { try { t ? sessionStorage.setItem(TOKEN_KEY, t) : sessionStorage.removeItem(TOKEN_KEY); } catch {} };
+
+function post(flag, action) {
+  const token = readToken();
+  return fetch(`/api/flags/${encodeURIComponent(flag)}/${encodeURIComponent(action)}`, {
+    method: 'POST',
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+  });
+}
+
+async function act(flag, action) {
+  if (action === 'rollback' && !confirm(`Roll back ${flag} now? Guardian removes its rollout and turns the flag's default off.`)) return;
+  busy.add(flag); renderFlags();
+  try {
+    let r = await post(flag, action);
+    if (r.status === 401) {
+      saveToken(prompt('Guardian API token (GUARDIAN_API_TOKEN):') || null);
+      if (readToken()) r = await post(flag, action);
+    }
+    if (!r.ok) alert((await r.json().catch(() => ({}))).error ?? `HTTP ${r.status}`);
+  } catch (e) {
+    // fetch rejects on network errors; without this the click fails silently.
+    alert(`Guardian is not reachable: ${e.message}`);
+  } finally {
+    busy.delete(flag); renderFlags();
+  }
+}
+
+$('#flags').addEventListener('click', (e) => {
+  const b = e.target.closest('button[data-action]');
+  if (b && !b.disabled) act(b.dataset.flag, b.dataset.action);
+});
+
+// --- data
+const setLive = (on, text) => { $('#live').className = `live ${on ? 'on' : 'off'}`; $('#live-text').textContent = text; };
+
+// Counts live 'state' messages, so a slower /api/state answer never overwrites a newer one.
+let stateSeq = 0;
+
+/** Full state + recent events. On load, and again after the stream reconnects (events sent while it was down were missed). */
+async function load() {
+  const seq = stateSeq;
+  try {
+    const res = await fetch('/api/state');
+    noteServerTime(res);
+    const s = await res.json();
+    $('#env').textContent = `· ${s.environment}`;
+    // Keep stream events that arrived during the fetch and are newer than the snapshot's last one.
+    const last = s.events.at(-1)?.ts ?? -Infinity;
+    events = s.events.concat(events.filter((e) => e.ts > last)).slice(-200);
+    if (seq === stateSeq) { flagsState = s.flags; renderFlags(); }
+    renderEvents();
+  } catch {
+    setLive(false, 'Guardian unreachable');
+  }
+}
+load();
+
+// EventSource reconnects by itself; the indicator shows when updates stop. It gives up for
+// good (CLOSED) on a non-200 answer, e.g. 503 when Guardian has too many live clients.
+let dropped = false;
+const es = new EventSource('/api/stream');
+es.onopen = () => { setLive(true, 'live'); if (dropped) load(); dropped = false; };
+es.onerror = () => { dropped = true; setLive(false, es.readyState === EventSource.CLOSED ? 'disconnected: reload the page' : 'reconnecting…'); };
+es.addEventListener('state', (m) => { stateSeq++; flagsState = JSON.parse(m.data); renderFlags(); });
+es.addEventListener('guardian', (m) => { events.push(JSON.parse(m.data)); events = events.slice(-200); renderEvents(); });
+</script>
+</body>
+</html>

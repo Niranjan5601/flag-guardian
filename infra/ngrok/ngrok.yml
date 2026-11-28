@@ -1,0 +1,17 @@
+# ngrok agent config for `docker compose --profile app --profile tunnel up -d`.
+# The auth token comes from NGROK_AUTHTOKEN in .env, never from this file.
+version: 2
+# The local inspector/API (port 4040) is off: it has no authentication and no Host check, so a
+# DNS-rebinding web page could read captured requests (Grafana bearer tokens) or start a new
+# tunnel to, say, grafana:3000. The public URL is printed in the log instead.
+web_addr: false
+log: stdout
+log_level: info
+log_format: logfmt
+tunnels:
+  # One tunnel (ngrok's free plan has one domain) to the gateway, which forwards only:
+  #   POST /webhooks/flagsmith → Guardian   (Flagsmith environment webhook)
+  #   POST /api/annotations    → Grafana    (Flagsmith Grafana integration, Base URL = tunnel root)
+  gateway:
+    proto: http
+    addr: gateway:8080
