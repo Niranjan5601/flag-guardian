@@ -1,5 +1,5 @@
 import { spawnSync } from 'node:child_process';
-import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -10,7 +10,23 @@ const pkg = resolve(import.meta.dirname, '..');
 const tsx = pathToFileURL(join(pkg, 'node_modules/tsx/dist/loader.mjs')).href;
 const cli = join(pkg, 'src/cli.ts');
 const dir = mkdtempSync(join(tmpdir(), 'guardian-diff-'));
-const flags = readFileSync(join(pkg, '../../flags.yaml'), 'utf8');
+const flags = `version: 1
+flagsmith: { project: demo-shop, environment: Production }
+metrics:
+  error_rate: { source: prometheus, query: "x" }
+  requests: { source: prometheus, query: "y" }
+flags:
+  new_checkout:
+    rollout:
+      steps: [5, 25, 50, 100]
+      interval: 30s
+      samples: requests
+      min_samples: 15
+    guards:
+      - metric: error_rate
+        max: 0.02
+    on_breach: rollback
+`;
 
 function diff(head: string, args: string[], stdin?: string) {
   writeFileSync(join(dir, 'head.yaml'), head);
